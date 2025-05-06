@@ -11,7 +11,7 @@
             padding: 20px; 
             min-height: 100vh; 
             position: relative; 
-            color: #000; /* Default text color to black */
+            color: #000;
         }
         .row { display: flex; justify-content: center; margin: 15px 0; }
         .card { 
@@ -52,11 +52,11 @@
         }
         #deck { 
             font-weight: bold; 
-            color: #000; /* Black */
+            color: #000;
         }
         #discard { 
             font-weight: bold; 
-            color: #000; /* Black */
+            color: #000;
         }
         #discarded, #drawn { display: inline-block; }
         #discarded .card, #drawn .card { margin: 0 auto; }
@@ -71,13 +71,13 @@
             border: none; 
             border-radius: 5px; 
             background-color: #4CAF50; 
-            color: white; /* Button text color unchanged */
+            color: white; 
             cursor: pointer; 
             box-shadow: 1px 1px 3px rgba(0,0,0,0.3); 
         }
         #actions button:disabled, #peek-button:disabled { 
             background-color: #aaaaaa; 
-            color: white; /* Button text color unchanged */
+            color: white; 
             cursor: not-allowed; 
         }
         #actions button:hover:not(:disabled), #peek-button:hover:not(:disabled) { 
@@ -86,30 +86,30 @@
         #message { 
             margin-top: 15px; 
             font-weight: bold; 
-            color: #000; /* Black */
+            color: #000;
         }
         .red { color: red; }
         .black { color: black; }
         h1, h2 { 
-            color: #000; /* Black */
+            color: #000;
         }
         #running-score {
             position: absolute;
             bottom: 10px;
             right: 10px;
             font-weight: bold;
-            color: #000; /* Black */
+            color: #000;
         }
         #deck-tracker {
             margin: 20px 0;
             font-size: 14px;
-            color: #000; /* Black */
+            color: #000;
             text-align: center;
         }
         #game-rules {
             margin: 10px 0;
             font-size: 14px;
-            color: #000; /* Black */
+            color: #000;
             text-align: left;
             max-width: 600px;
             margin-left: auto;
@@ -120,7 +120,39 @@
             bottom: 10px;
             left: 10px;
             font-size: 12px;
-            color: #000; /* Black */
+            color: #000;
+        }
+        #game-setup {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        #card-count {
+            padding: 8px;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+            background-color: #fff;
+            color: #000;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #card-count:focus {
+            outline: none;
+            border-color: #45a049;
+        }
+        #start-game {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+        #start-game:hover {
+            background-color: #45a049;
         }
     </style>
 </head>
@@ -148,12 +180,13 @@
                 <li>The game ends when all cards are revealed. The player with the lowest score wins.</li>
             </ul>
         </div>
-        <div>Number of cards per player:
+        <div id="game-setup">
+            Number of cards per player:
             <select id="card-count">
                 <option value="8">8</option>
                 <option value="12">12</option>
             </select>
-            <button onclick="startGame()">Start Game</button>
+            <button id="start-game" onclick="startGame()">Start Game</button>
         </div>
         <div id="cpu-cards">
             <h2>CPU</h2>
@@ -195,50 +228,77 @@
         let currentAction = null, isPlayerTurn = true, isPeeking = false;
         let playerTotalScore = 0, cpuTotalScore = 0;
         let deckTracker = {};
+        let cpuDeckTracker = {};
+        let cpuTopFlips = 0;
+        let maxTopFlips = 0;
 
-        /** Initialize the deck tracker */
+        /** Initialize the deck tracker for the player */
         function initDeckTracker() {
             deckTracker = {};
             ranks.forEach(rank => {
-                deckTracker[rank] = 4; // 4 suits per rank
+                deckTracker[rank] = 4;
             });
         }
 
-        /** Update the deck tracker based on player's knowledge */
+        /** Initialize the deck tracker for the CPU */
+        function initCpuDeckTracker() {
+            cpuDeckTracker = {};
+            ranks.forEach(rank => {
+                cpuDeckTracker[rank] = 4;
+            });
+        }
+
+        /** Update the player's deck tracker based on their knowledge */
         function updateDeckTracker() {
             let knownRanks = {};
-
-            // Player's revealed cards
             playerCards.filter(c => c.revealed).forEach(c => {
                 let rank = c.card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
-
-            // Player's bottom row (known to player, even if unplayed)
             playerCards.filter(c => c.row === 1).forEach(c => {
                 let rank = c.card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
-
-            // CPU's revealed cards
             cpuCards.filter(c => c.revealed).forEach(c => {
                 let rank = c.card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
-
-            // Discarded cards
             discarded.forEach(card => {
                 let rank = card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
 
-            // Calculate remaining cards in the deck
             let trackerText = "Possible Deck: ";
             ranks.forEach(rank => {
                 let remaining = Math.max(0, deckTracker[rank] - (knownRanks[rank] || 0));
                 trackerText += `${rank}:${remaining} `;
             });
             document.getElementById('deck-tracker').textContent = trackerText;
+        }
+
+        /** Update the CPU's deck tracker based on its knowledge */
+        function updateCpuDeckTracker() {
+            let knownRanks = {};
+            cpuCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            cpuCards.filter(c => c.row === 1).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            playerCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            discarded.forEach(card => {
+                let rank = card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+
+            ranks.forEach(rank => {
+                cpuDeckTracker[rank] = Math.max(0, 4 - (knownRanks[rank] || 0));
+            });
         }
 
         /** Calculate the value of a single card based on its rank */
@@ -303,12 +363,17 @@
             document.getElementById('peek-button').disabled = false;
 
             initDeckTracker();
+            initCpuDeckTracker();
             updateDeckTracker();
+            updateCpuDeckTracker();
             renderCards();
             updateCenter();
             updateDiscardCounter();
             document.getElementById('message').textContent = "Player's turn";
             startPlayerTurn();
+
+            maxTopFlips = Math.ceil(cols / 2);
+            cpuTopFlips = 0;
         }
 
         /** Render all cards on the screen */
@@ -338,7 +403,7 @@
                 let pbDiv = document.createElement('div');
                 let isBottomVisible = pBottom.revealed || (isPeeking && !pBottom.revealed);
                 pbDiv.textContent = formatCard(pBottom.card, isBottomVisible);
-                pbDiv.className = 'card ' + (isBottomVisible ? (['H','D'].includes(pTop.card.slice(-1)) ? 'red' : 'black') : 'hidden') + (isPeeking && !pBottom.revealed ? ' unplayed' : '');
+                pbDiv.className = 'card ' + (isBottomVisible ? (['H','D'].includes(pBottom.card.slice(-1)) ? 'red' : 'black') : 'hidden') + (isPeeking && !pBottom.revealed ? ' unplayed' : '');
                 pbDiv.dataset.row = '1';
                 pbDiv.dataset.col = col;
                 playerBottom.appendChild(pbDiv);
@@ -382,6 +447,7 @@
             }
             updateDiscardCounter();
             updateDeckTracker();
+            updateCpuDeckTracker();
         }
 
         /** Begin the player's turn */
@@ -459,11 +525,11 @@
                 let count = rankCount[rank];
                 let pairs = Math.floor(count / 2);
                 if (rank === 'Q') {
-                    score += pairs * 40; // Queens score 40 per pair
+                    score += pairs * 40;
                 } else if (rank === '2') {
-                    score += pairs * (-4); // Twos score -4 per pair (2 * -2)
+                    score += pairs * (-4);
                 } else {
-                    score += pairs * 0; // Other matching pairs score 0
+                    score += pairs * 0;
                 }
                 rankCount[rank] = count % 2;
             }
@@ -483,8 +549,8 @@
             return { total: score };
         }
 
-        /** Estimate the total score for CPU decision-making */
-        function estimateTotalScore(cards, targetIdx, newCard) {
+        /** Estimate the total score for CPU decision-making, with risk adjustment */
+        function estimateTotalScore(cards, targetIdx, newCard, deckTracker, isEarlyGame, flipProbability) {
             let simulatedCards = cards.map((c, idx) => {
                 if (idx === targetIdx) {
                     return { ...c, card: newCard, revealed: true };
@@ -496,8 +562,17 @@
             let ranksList = revealedCards.map(c => c.card.slice(0, -1));
 
             if (revealedCards.length !== simulatedCards.length) {
-                let avgValue = 5;
-                return ranksList.reduce((sum, rank) => sum + cardValue(rank), 0) + (simulatedCards.length - revealedCards.length) * avgValue;
+                let baseScore = ranksList.reduce((sum, rank) => sum + cardValue(rank), 0);
+                let unrevealedCount = simulatedCards.length - revealedCards.length;
+                let totalCardsLeft = Object.values(deckTracker).reduce((sum, count) => sum + count, 0);
+                let queenCount = deckTracker['Q'] || 0;
+                let queenRisk = totalCardsLeft > 0 ? (queenCount / totalCardsLeft) * 20 : 0;
+
+                if (isEarlyGame && Math.random() < flipProbability) {
+                    baseScore -= 2 * unrevealedCount;
+                }
+
+                return baseScore + (unrevealedCount * (5 + queenRisk));
             }
 
             let rankCount = {};
@@ -510,11 +585,11 @@
                 let count = rankCount[rank];
                 let pairs = Math.floor(count / 2);
                 if (rank === 'Q') {
-                    score += pairs * 40; // Queens score 40 per pair
+                    score += pairs * 40;
                 } else if (rank === '2') {
-                    score += pairs * (-4); // Twos score -4 per pair (2 * -2)
+                    score += pairs * (-4);
                 } else {
-                    score += pairs * 0; // Other matching pairs score 0
+                    score += pairs * 0;
                 }
                 rankCount[rank] = count % 2;
             }
@@ -534,7 +609,12 @@
             return score;
         }
 
-        /** Handle the CPU's turn with a strategy to minimize score */
+        /** Check if the CPU already has a Queen in its hand */
+        function hasQueen(cards) {
+            return cards.some(c => (c.revealed || c.row === 1) && c.card.slice(0, -1) === 'Q');
+        }
+
+        /** Handle the CPU's turn with enhanced strategy */
         function cpuTurn() {
             drawnCard = deck.pop();
             updateCenter();
@@ -546,6 +626,9 @@
             let bestAction = null;
             let bestTargetIdx = null;
             let bestScore = Infinity;
+
+            let flipProbability = 1 - (cpuTopFlips / maxTopFlips);
+            let isEarlyGame = hiddenCards.length > cpuCards.length / 2;
 
             hiddenCards.forEach(target => {
                 let idx = cpuCards.findIndex(c => c.row === target.row && c.col === target.col);
@@ -560,7 +643,13 @@
                 }
 
                 actions.forEach(({ action, card }) => {
-                    let score = estimateTotalScore(cpuCards, idx, card);
+                    let cardRank = card.slice(0, -1);
+                    if ((action === 'use-drawn' || action === 'use-discarded') && cardRank === 'Q' && !hasQueen(cpuCards)) {
+                        return;
+                    }
+
+                    let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipProbability);
+
                     if (score < bestScore) {
                         bestScore = score;
                         bestAction = action;
@@ -584,6 +673,9 @@
             } else {
                 cpuCards[bestTargetIdx].revealed = true;
                 discarded.push(drawnCard);
+                if (cpuCards[bestTargetIdx].row === 0) {
+                    cpuTopFlips++;
+                }
             }
 
             drawnCard = null;
