@@ -50,11 +50,7 @@
             align-items: center; 
             gap: 20px; 
         }
-        #deck { 
-            font-weight: bold; 
-            color: #000;
-        }
-        #discard { 
+        #deck, #discard { 
             font-weight: bold; 
             color: #000;
         }
@@ -90,9 +86,7 @@
         }
         .red { color: red; }
         .black { color: black; }
-        h1, h2 { 
-            color: #000;
-        }
+        h1, h2 { color: #000; }
         #running-score {
             position: absolute;
             bottom: 10px;
@@ -153,6 +147,20 @@
         }
         #start-game:hover {
             background-color: #45a049;
+        }
+        #debug-console {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #333;
+            color: white;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: scroll;
+            z-index: 1000;
         }
     </style>
 </head>
@@ -215,7 +223,13 @@
         <div id="message"></div>
         <div id="running-score">Player Total: 0, CPU Total: 0</div>
         <div id="deck-tracker">Possible Deck: Loading...</div>
-        <div id="developer">Developed by Tyler Hartman</div>
+        <div id="developer">
+            <button id="debug-button" onclick="toggleDebugConsole()">Debug</button>
+            <p>Developed by Tyler Hartman</p>
+        </div>
+        <div id="debug-console" style="display: none;">
+            <div id="debug-content"></div>
+        </div>
     </div>
 
     <script>
@@ -231,6 +245,8 @@
         let cpuDeckTracker = {};
         let cpuHasFlippedInitialTop = false;
         let cpuTopFlips = 0;
+        const maxTopFlips = 2;
+        let actionLog = [];
 
         /** Helper function to check if the bottom row is fully paired */
         function isBottomRowPaired(cards) {
@@ -278,6 +294,10 @@
                 let rank = card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
+            if (drawnCard && isPlayerTurn) {
+                let rank = drawnCard.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            }
 
             let trackerText = "Possible Deck: ";
             ranks.forEach(rank => {
@@ -306,6 +326,10 @@
                 let rank = card.slice(0, -1);
                 knownRanks[rank] = (knownRanks[rank] || 0) + 1;
             });
+            if (drawnCard && !isPlayerTurn) {
+                let rank = drawnCard.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            }
 
             ranks.forEach(rank => {
                 cpuDeckTracker[rank] = Math.max(0, 4 - (knownRanks[rank] || 0));
@@ -320,6 +344,7 @@
             if (rank === 'Q') return 20;
             if (rank === 'K') return 0;
             if (rank === 'A') return 1;
+            return 0;
         }
 
         /** Shuffle an array in place */
@@ -385,6 +410,7 @@
 
             cpuHasFlippedInitialTop = false;
             cpuTopFlips = 0;
+            actionLog = [];
         }
 
         /** Render all cards on the screen */
@@ -463,7 +489,7 @@
 
         /** Begin the player's turn */
         function startPlayerTurn() {
-            if (playerCards.every(c => c.revealed)) {
+            if (deck.length === 0 || playerCards.every(c => c.revealed)) {
                 endTurn();
                 return;
             }
@@ -471,6 +497,7 @@
             updateCenter();
             const buttons = document.getElementById('actions').children;
             for (let btn of buttons) btn.disabled = false;
+            document.getElementById('use-discarded').disabled = discarded.length === 0;
         }
 
         /** Make unrevealed player cards selectable */
@@ -507,7 +534,6 @@
                 playerCards[cardIdx].card = drawnCard;
                 playerCards[cardIdx].revealed = true;
                 discarded.push(oldCard);
-                discarded.push(drawnCard);
             } else if (currentAction === 'flip-only') {
                 playerCards[cardIdx].revealed = true;
                 discarded.push(drawnCard);
@@ -517,6 +543,8 @@
             clearSelection();
             renderCards();
             updateCenter();
+            const buttons = document.getElementById('actions').children;
+            for (let btn of buttons) btn.disabled = true;
             endTurn();
         }
 
@@ -542,29 +570,28 @@
                     score += pairs * 40;
                 } else if (rank === '2') {
                     score += pairs * (-4);
-                } else {
-                    score += pairs * 0;
                 }
                 rankCount[rank] = count % 2;
             }
 
             let remainingRanks = [];
             for (let rank of Object.keys(rankCount)) {
-                if (rankCount[rank] > 0) {
-                    remainingRanks.push(rank);
-                }
+                if (rankCount[rank] > 0) remainingRanks.push(rank);
             }
             while (remainingRanks.length >= 2) {
                 let r1 = remainingRanks.shift();
                 let r2 = remainingRanks.shift();
                 score += cardValue(r1) + cardValue(r2);
             }
+            if (remainingRanks.length === 1) {
+                score += cardValue(remainingRanks[0]);
+            }
 
             return { total: score };
         }
 
         /** Estimate the total score for CPU decision-making, with risk adjustment */
-        function estimateTotalScore(cards, targetIdx, newCard, deckTracker, isEarlyGame, flipEncouragement) {
+        function estimateTotalScore(cards, targetIdx, newCard, deckTracker, isEarlyGame, flipProbability) {
             let simulatedCards = cards.map((c, idx) => {
                 if (idx === targetIdx) {
                     return { ...c, card: newCard, revealed: true };
@@ -582,48 +609,14 @@
                 let queenCount = deckTracker['Q'] || 0;
                 let queenRisk = totalCardsLeft > 0 ? (queenCount / totalCardsLeft) * 20 : 0;
 
-                // Encourage flipping as fewer cards remain
-                if (isEarlyGame) {
-                    baseScore += unrevealedCount * 5; // Early penalty to delay flipping
-                } else {
-                    baseScore -= flipEncouragement * unrevealedCount; // Encourage flipping later
+                if (isEarlyGame && Math.random() < flipProbability) {
+                    baseScore -= 2 * unrevealedCount;
                 }
 
                 return baseScore + (unrevealedCount * (5 + queenRisk));
             }
 
-            let rankCount = {};
-            ranksList.forEach(rank => {
-                rankCount[rank] = (rankCount[rank] || 0) + 1;
-            });
-
-            let score = 0;
-            for (let rank of Object.keys(rankCount)) {
-                let count = rankCount[rank];
-                let pairs = Math.floor(count / 2);
-                if (rank === 'Q') {
-                    score += pairs * 40;
-                } else if (rank === '2') {
-                    score += pairs * (-4);
-                } else {
-                    score += pairs * 0;
-                }
-                rankCount[rank] = count % 2;
-            }
-
-            let remainingRanks = [];
-            for (let rank of Object.keys(rankCount)) {
-                if (rankCount[rank] > 0) {
-                    remainingRanks.push(rank);
-                }
-            }
-            while (remainingRanks.length >= 2) {
-                let r1 = remainingRanks.shift();
-                let r2 = remainingRanks.shift();
-                score += cardValue(r1) + cardValue(r2);
-            }
-
-            return score;
+            return calculateTotalScore(simulatedCards).total;
         }
 
         /** Check if the CPU already has a Queen in its hand */
@@ -633,31 +626,36 @@
 
         /** Handle the CPU's turn with enhanced strategy */
         function cpuTurn() {
+            if (deck.length === 0 || cpuCards.every(c => c.revealed)) {
+                endTurn();
+                return;
+            }
             drawnCard = deck.pop();
             updateCenter();
             document.getElementById('message').textContent = "CPU's turn";
 
             const hiddenCards = cpuCards.filter(c => !c.revealed);
-            if (!hiddenCards.length) return endTurn();
+            if (!hiddenCards.length) {
+                discarded.push(drawnCard);
+                drawnCard = null;
+                updateCenter();
+                endTurn();
+                return;
+            }
 
             let bestAction = null;
             let bestTargetIdx = null;
             let bestScore = Infinity;
 
             const bottomPaired = isBottomRowPaired(cpuCards);
-            const isEarlyGame = hiddenCards.length > cpuCards.length / 2;
-            // Encourage flipping more as hidden cards decrease
-            const flipEncouragement = 5 * (1 - (hiddenCards.length / cpuCards.length));
 
             if (!bottomPaired) {
-                // Phase 1: Focus on pairing the bottom row
                 if (!cpuHasFlippedInitialTop) {
                     const topHiddenCards = cpuCards.filter(c => c.row === 0 && !c.revealed);
                     if (topHiddenCards.length > 0) {
                         const idx = cpuCards.indexOf(topHiddenCards[0]);
                         cpuCards[idx].revealed = true;
                         cpuHasFlippedInitialTop = true;
-                        cpuTopFlips++;
                         discarded.push(drawnCard);
                         drawnCard = null;
                         renderCards();
@@ -667,39 +665,32 @@
                     }
                 }
 
-                // Consider actions for bottom-row hidden cards
                 const bottomHiddenCards = cpuCards.filter(c => c.row === 1 && !c.revealed);
-                bottomHiddenCards.forEach(target => {
-                    let idx = cpuCards.indexOf(target);
-                    let actions = [
-                        { action: 'flip-only', card: target.card },
-                        { action: 'use-drawn', card: drawnCard },
-                    ];
-                    if (discarded.length) {
-                        actions.push({ action: 'use-discarded', card: discarded[discarded.length - 1] });
+                if (bottomHiddenCards.length > 0) {
+                    const idx = cpuCards.indexOf(bottomHiddenCards[0]);
+                    let score = estimateTotalScore(cpuCards, idx, drawnCard, cpuDeckTracker, false, 0);
+                    bestAction = 'use-drawn';
+                    bestTargetIdx = idx;
+                    bestScore = score;
+
+                    if (discarded.length > 0) {
+                        let discardScore = estimateTotalScore(cpuCards, idx, discarded[discarded.length - 1], cpuDeckTracker, false, 0);
+                        if (discardScore < bestScore) {
+                            bestAction = 'use-discarded';
+                            bestScore = discardScore;
+                        }
                     }
-
-                    actions.forEach(({ action, card }) => {
-                        let cardRank = card.slice(0, -1);
-                        if ((action === 'use-drawn' || action === 'use-discarded') && cardRank === 'Q' && !hasQueen(cpuCards)) {
-                            return;
-                        }
-
-                        let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipEncouragement);
-
-                        if (score < bestScore) {
-                            bestScore = score;
-                            bestAction = action;
-                            bestTargetIdx = idx;
-                        }
-                    });
-                });
+                }
             } else {
-                // Phase 2: Bottom row is paired, optimize top row
+                let flipProbability = cpuTopFlips < maxTopFlips ? 1 - (cpuTopFlips / maxTopFlips) : 0;
+                let isEarlyGame = hiddenCards.length > cpuCards.length / 2;
+
                 hiddenCards.forEach(target => {
-                    let idx = cpuCards.indexOf(target);
+                    let idx = cpuCards.findIndex(c => c.row === target.row && c.col === target.col);
+                    let currentCard = target.card;
+
                     let actions = [
-                        { action: 'flip-only', card: target.card },
+                        { action: 'flip-only', card: currentCard },
                         { action: 'use-drawn', card: drawnCard },
                     ];
                     if (discarded.length) {
@@ -712,7 +703,7 @@
                             return;
                         }
 
-                        let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipEncouragement);
+                        let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipProbability);
 
                         if (score < bestScore) {
                             bestScore = score;
@@ -723,33 +714,20 @@
                 });
             }
 
-            if (bestAction) {
-                let oldCard = cpuCards[bestTargetIdx].card;
+            let oldCard = cpuCards[bestTargetIdx].card;
 
-                if (bestAction === 'use-discarded') {
-                    cpuCards[bestTargetIdx].card = discarded.pop();
-                    cpuCards[bestTargetIdx].revealed = true;
-                    discarded.push(oldCard);
-                    discarded.push(drawnCard);
-                } else if (bestAction === 'use-drawn') {
-                    cpuCards[bestTargetIdx].card = drawnCard;
-                    cpuCards[bestTargetIdx].revealed = true;
-                    discarded.push(oldCard);
-                    discarded.push(drawnCard);
-                } else if (bestAction === 'flip-only') {
-                    cpuCards[bestTargetIdx].revealed = true;
-                    discarded.push(drawnCard);
-                    if (cpuCards[bestTargetIdx].row === 0) {
-                        cpuTopFlips++;
-                    }
-                }
-            } else {
-                // Fallback: Flip a random hidden card
-                const randomHidden = hiddenCards[Math.floor(Math.random() * hiddenCards.length)];
-                const idx = cpuCards.indexOf(randomHidden);
-                cpuCards[idx].revealed = true;
+            if (bestAction === 'use-discarded') {
+                cpuCards[bestTargetIdx].card = discarded.pop();
+                cpuCards[bestTargetIdx].revealed = true;
+                discarded.push(oldCard);
+            } else if (bestAction === 'use-drawn') {
+                cpuCards[bestTargetIdx].card = drawnCard;
+                cpuCards[bestTargetIdx].revealed = true;
+                discarded.push(oldCard);
+            } else if (bestAction === 'flip-only') {
+                cpuCards[bestTargetIdx].revealed = true;
                 discarded.push(drawnCard);
-                if (randomHidden.row === 0) {
+                if (cpuCards[bestTargetIdx].row === 0) {
                     cpuTopFlips++;
                 }
             }
@@ -763,7 +741,7 @@
         /** End the current turn and check for game end */
         function endTurn() {
             const allRevealed = playerCards.every(c => c.revealed) && cpuCards.every(c => c.revealed);
-            if (allRevealed) {
+            if (deck.length === 0 || allRevealed) {
                 let playerResult = calculateTotalScore(playerCards);
                 let cpuResult = calculateTotalScore(cpuCards);
                 let playerScore = playerResult.total;
@@ -779,7 +757,8 @@
                     message += "It's a tie!";
                 }
                 document.getElementById('message').textContent = message;
-                document.getElementById('actions').children.forEach(btn => btn.disabled = true);
+                const buttons = document.getElementById('actions').children;
+                for (let btn of buttons) btn.disabled = true;
                 document.getElementById('peek-button').disabled = true;
                 updateRunningScore();
                 return;
@@ -792,6 +771,31 @@
             } else {
                 setTimeout(cpuTurn, 1000);
             }
+        }
+
+        /** Toggle the debug console visibility */
+        function toggleDebugConsole() {
+            const consoleDiv = document.getElementById('debug-console');
+            consoleDiv.style.display = consoleDiv.style.display === 'none' ? 'block' : 'none';
+            if (consoleDiv.style.display === 'block') updateDebugConsole();
+        }
+
+        /** Update the debug console content */
+        function updateDebugConsole() {
+            const debugContent = document.getElementById('debug-content');
+            let content = "Deck: " + deck.join(', ') + "\n";
+            content += "Discarded: " + discarded.join(', ') + "\n";
+            content += "Drawn Card: " + (drawnCard || 'None') + "\n";
+            content += "Player Cards:\n";
+            playerCards.forEach(c => {
+                content += `  Row ${c.row}, Col ${c.col}: ${c.card} (${c.revealed ? 'Revealed' : 'Hidden'})\n`;
+            });
+            content += "CPU Cards:\n";
+            cpuCards.forEach(c => {
+                content += `  Row ${c.row}, Col ${c.col}: ${c.card} (${c.revealed ? 'Revealed' : 'Hidden'})\n`;
+            });
+            content += "Action Log:\n" + actionLog.join('\n');
+            debugContent.textContent = content;
         }
 
         /** Event listeners for player actions */
