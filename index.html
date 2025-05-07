@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sneaky Queens</title>
+    <style>
+        #game { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            background-color: #e6f3e6; 
+            padding: 20px; 
+            min-height: 100vh; 
+            position: relative; 
+            color: #000;
+        }
+        .row { display: flex; justify-content: center; margin: 15px 0; }
+        .card { 
+            width: 80px; 
+            height: 100px; 
+            border: 2px solid #333; 
+            border-radius: 5px;
+            margin: 5px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            background-color: #fff; 
+            cursor: default; 
+            font-family: "Courier New", monospace; 
+            font-size: 12px; 
+            line-height: 16px; 
+            text-align: center; 
+            white-space: pre; 
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+        }
+        .hidden { background-color: #ccc; }
+        .unplayed { background-color: #d3d3d3; }
+        .selectable:hover { background-color: #ffd700; cursor: pointer; }
+        #center { 
+            margin: 30px 0; 
+            display: flex; 
+            flex-direction: row; 
+            flex-wrap: nowrap; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 20px; 
+        }
+        #deck-info { 
+            display: flex; 
+            flex-direction: row; 
+            align-items: center; 
+            gap: 20px; 
+        }
+        #deck { 
+            font-weight: bold; 
+            color: #000;
+        }
+        #discard { 
+            font-weight: bold; 
+            color: #000;
+        }
+        #discarded, #drawn { display: inline-block; }
+        #discarded .card, #drawn .card { margin: 0 auto; }
+        #actions { 
+            display: flex; 
+            justify-content: center; 
+            margin: 20px 0; 
+            gap: 20px; 
+        }
+        #actions button, #peek-button { 
+            padding: 8px 16px; 
+            border: none; 
+            border-radius: 5px; 
+            background-color: #4CAF50; 
+            color: white; 
+            cursor: pointer; 
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3); 
+        }
+        #actions button:disabled, #peek-button:disabled { 
+            background-color: #aaaaaa; 
+            color: white; 
+            cursor: not-allowed; 
+        }
+        #actions button:hover:not(:disabled), #peek-button:hover:not(:disabled) { 
+            background-color: #45a049; 
+        }
+        #message { 
+            margin-top: 15px; 
+            font-weight: bold; 
+            color: #000;
+        }
+        .red { color: red; }
+        .black { color: black; }
+        h1, h2 { 
+            color: #000;
+        }
+        #running-score {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-weight: bold;
+            color: #000;
+        }
+        #deck-tracker {
+            margin: 20px 0;
+            font-size: 14px;
+            color: #000;
+            text-align: center;
+        }
+        #game-rules {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #000;
+            text-align: left;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        #developer {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 12px;
+            color: #000;
+        }
+        #game-setup {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        #card-count {
+            padding: 8px;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+            background-color: #fff;
+            color: #000;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #card-count:focus {
+            outline: none;
+            border-color: #45a049;
+        }
+        #start-game {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+        #start-game:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="game">
+        <h1>Sneaky Queens</h1>
+        <div id="game-rules">
+            <p><strong>Game Rules:</strong></p>
+            <ul>
+                <li>Each player has two rows of cards. The bottom row can be peeked at privately.</li>
+                <li>During your turn, draw a card and choose to:
+                    <ul>
+                        <li><strong>Use Discarded</strong>: Replace an unrevealed card with the top discarded card.</li>
+                        <li><strong>Use Drawn</strong>: Replace an unrevealed card with the drawn card.</li>
+                        <li><strong>Flip Only</strong>: Reveal an unrevealed card without replacement.</li>
+                    </ul>
+                </li>
+                <li>Scoring:
+                    <ul>
+                        <li>Pair cards across your entire hand to minimize your score.</li>
+                        <li>Pairs of the same rank score 0, except Queens, which score 40, and Twos, which score -4.</li>
+                        <li>Non-matching pairs score the sum of their values (2=-2, 3-10=face, J=10, Q=20, K=0, A=1).</li>
+                    </ul>
+                </li>
+                <li>The game ends when all cards are revealed. The player with the lowest score wins.</li>
+            </ul>
+        </div>
+        <div id="game-setup">
+            Number of cards per player:
+            <select id="card-count">
+                <option value="8">8</option>
+                <option value="12">12</option>
+            </select>
+            <button id="start-game" onclick="startGame()">Start Game</button>
+        </div>
+        <div id="cpu-cards">
+            <h2>CPU</h2>
+            <div class="row top-row" id="cpu-top-row"></div>
+            <div class="row bottom-row" id="cpu-bottom-row"></div>
+        </div>
+        <div id="center">
+            <div id="deck-info">
+                <div id="deck">Deck: <span id="deck-count">0</span></div>
+                <div id="discard">Discard: <span id="discard-count">0</span></div>
+            </div>
+            <div id="drawn">Drawn: <div id="drawn-card">None</div></div>
+            <div id="discarded">Discarded: <div id="discarded-top">None</div></div>
+        </div>
+        <div id="player-cards">
+            <h2>Player</h2>
+            <div class="row top-row" id="player-top-row"></div>
+            <div class="row bottom-row" id="player-bottom-row"></div>
+            <button id="peek-button" disabled>Peek at Bottom Row</button>
+        </div>
+        <div id="actions">
+            <button id="use-discarded" disabled>Use Discarded</button>
+            <button id="use-drawn" disabled>Use Drawn</button>
+            <button id="flip-only" disabled>Flip Only</button>
+        </div>
+        <div id="message"></div>
+        <div id="running-score">Player Total: 0, CPU Total: 0</div>
+        <div id="deck-tracker">Possible Deck: Loading...</div>
+        <div id="developer">Developed by Tyler Hartman</div>
+    </div>
+
+    <script>
+        const suits = ['H', 'D', 'C', 'S'];
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        const suitSymbols = { 'H': '♥', 'D': '♦', 'C': '♣', 'S': '♠' };
+        let deck = [], discarded = [], drawnCard = null;
+        let playerCards = [], cpuCards = [];
+        let numCards = 8, cols = 4;
+        let currentAction = null, isPlayerTurn = true, isPeeking = false;
+        let playerTotalScore = 0, cpuTotalScore = 0;
+        let deckTracker = {};
+        let cpuDeckTracker = {};
+        let cpuHasFlippedInitialTop = false;
+        let cpuTopFlips = 0;
+
+        /** Helper function to check if the bottom row is fully paired */
+        function isBottomRowPaired(cards) {
+            const bottomRow = cards.filter(c => c.row === 1);
+            const rankCounts = {};
+            bottomRow.forEach(card => {
+                let rank = card.card.slice(0, -1);
+                rankCounts[rank] = (rankCounts[rank] || 0) + 1;
+            });
+            return Object.values(rankCounts).every(count => count % 2 === 0);
+        }
+
+        /** Initialize the deck tracker for the player */
+        function initDeckTracker() {
+            deckTracker = {};
+            ranks.forEach(rank => {
+                deckTracker[rank] = 4;
+            });
+        }
+
+        /** Initialize the deck tracker for the CPU */
+        function initCpuDeckTracker() {
+            cpuDeckTracker = {};
+            ranks.forEach(rank => {
+                cpuDeckTracker[rank] = 4;
+            });
+        }
+
+        /** Update the player's deck tracker based on their knowledge */
+        function updateDeckTracker() {
+            let knownRanks = {};
+            playerCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            playerCards.filter(c => c.row === 1).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            cpuCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            discarded.forEach(card => {
+                let rank = card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+
+            let trackerText = "Possible Deck: ";
+            ranks.forEach(rank => {
+                let remaining = Math.max(0, deckTracker[rank] - (knownRanks[rank] || 0));
+                trackerText += `${rank}:${remaining} `;
+            });
+            document.getElementById('deck-tracker').textContent = trackerText;
+        }
+
+        /** Update the CPU's deck tracker based on its knowledge */
+        function updateCpuDeckTracker() {
+            let knownRanks = {};
+            cpuCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            cpuCards.filter(c => c.row === 1).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            playerCards.filter(c => c.revealed).forEach(c => {
+                let rank = c.card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+            discarded.forEach(card => {
+                let rank = card.slice(0, -1);
+                knownRanks[rank] = (knownRanks[rank] || 0) + 1;
+            });
+
+            ranks.forEach(rank => {
+                cpuDeckTracker[rank] = Math.max(0, 4 - (knownRanks[rank] || 0));
+            });
+        }
+
+        /** Calculate the value of a single card based on its rank */
+        function cardValue(rank) {
+            if (rank === '2') return -2;
+            if (['3', '4', '5', '6', '7', '8', '9', '10'].includes(rank)) return parseInt(rank);
+            if (rank === 'J') return 10;
+            if (rank === 'Q') return 20;
+            if (rank === 'K') return 0;
+            if (rank === 'A') return 1;
+        }
+
+        /** Shuffle an array in place */
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        /** Format a card for display */
+        function formatCard(card, isVisible) {
+            if (!card || !isVisible) {
+                return `+-----+\n|#####|\n|#####|\n|#####|\n+-----+`;
+            }
+            let rank = card.slice(0, -1);
+            let suit = card.slice(-1);
+            let suitSymbol = suitSymbols[suit];
+            return `+-----+\n|${rank.padEnd(4)} |\n|  ${suitSymbol}  |\n| ${rank.padStart(4)}|\n+-----+`;
+        }
+
+        /** Update the running score display */
+        function updateRunningScore() {
+            document.getElementById('running-score').textContent = `Player Total: ${playerTotalScore}, CPU Total: ${cpuTotalScore}`;
+        }
+
+        /** Update the discard pile counter */
+        function updateDiscardCounter() {
+            document.getElementById('discard-count').textContent = `${discarded.length}`;
+        }
+
+        /** Initialize a new game */
+        function startGame() {
+            numCards = parseInt(document.getElementById('card-count').value);
+            cols = numCards / 2;
+            deck = [];
+            suits.forEach(s => ranks.forEach(r => deck.push(r + s)));
+            shuffle(deck);
+            
+            playerCards = [];
+            cpuCards = [];
+            for (let col = 0; col < cols; col++) {
+                playerCards.push({row: 0, col, card: deck.pop(), revealed: false});
+                playerCards.push({row: 1, col, card: deck.pop(), revealed: false});
+                cpuCards.push({row: 0, col, card: deck.pop(), revealed: false});
+                cpuCards.push({row: 1, col, card: deck.pop(), revealed: false});
+            }
+            discarded = [deck.pop()];
+            drawnCard = null;
+            isPeeking = false;
+            document.getElementById('peek-button').textContent = 'Peek at Bottom Row';
+            document.getElementById('peek-button').disabled = false;
+
+            initDeckTracker();
+            initCpuDeckTracker();
+            updateDeckTracker();
+            updateCpuDeckTracker();
+            renderCards();
+            updateCenter();
+            updateDiscardCounter();
+            document.getElementById('message').textContent = "Player's turn";
+            startPlayerTurn();
+
+            cpuHasFlippedInitialTop = false;
+            cpuTopFlips = 0;
+        }
+
+        /** Render all cards on the screen */
+        function renderCards() {
+            const playerTop = document.getElementById('player-top-row');
+            const playerBottom = document.getElementById('player-bottom-row');
+            const cpuTop = document.getElementById('cpu-top-row');
+            const cpuBottom = document.getElementById('cpu-bottom-row');
+            playerTop.innerHTML = '';
+            playerBottom.innerHTML = '';
+            cpuTop.innerHTML = '';
+            cpuBottom.innerHTML = '';
+
+            for (let col = 0; col < cols; col++) {
+                let pTop = playerCards.find(c => c.row === 0 && c.col === col);
+                let pBottom = playerCards.find(c => c.row === 1 && c.col === col);
+                let cTop = cpuCards.find(c => c.row === 0 && c.col === col);
+                let cBottom = cpuCards.find(c => c.row === 1 && c.col === col);
+
+                let ptDiv = document.createElement('div');
+                ptDiv.textContent = formatCard(pTop.card, pTop.revealed);
+                ptDiv.className = 'card ' + (pTop.revealed ? (['H','D'].includes(pTop.card.slice(-1)) ? 'red' : 'black') : 'hidden');
+                ptDiv.dataset.row = '0';
+                ptDiv.dataset.col = col;
+                playerTop.appendChild(ptDiv);
+
+                let pbDiv = document.createElement('div');
+                let isBottomVisible = pBottom.revealed || (isPeeking && !pBottom.revealed);
+                pbDiv.textContent = formatCard(pBottom.card, isBottomVisible);
+                pbDiv.className = 'card ' + (isBottomVisible ? (['H','D'].includes(pBottom.card.slice(-1)) ? 'red' : 'black') : 'hidden') + (isPeeking && !pBottom.revealed ? ' unplayed' : '');
+                pbDiv.dataset.row = '1';
+                pbDiv.dataset.col = col;
+                playerBottom.appendChild(pbDiv);
+
+                let ctDiv = document.createElement('div');
+                ctDiv.textContent = formatCard(cTop.card, cTop.revealed);
+                ctDiv.className = 'card ' + (cTop.revealed ? (['H','D'].includes(cTop.card.slice(-1)) ? 'red' : 'black') : 'hidden');
+                cpuTop.appendChild(ctDiv);
+
+                let cbDiv = document.createElement('div');
+                cbDiv.textContent = formatCard(cBottom.card, cBottom.revealed);
+                cbDiv.className = 'card ' + (cBottom.revealed ? (['H','D'].includes(cBottom.card.slice(-1)) ? 'red' : 'black') : 'hidden');
+                cpuBottom.appendChild(cbDiv);
+            }
+        }
+
+        /** Update the deck, discarded pile, and drawn card display */
+        function updateCenter() {
+            document.getElementById('deck-count').textContent = deck.length;
+            let discardedTopDiv = document.getElementById('discarded-top');
+            discardedTopDiv.innerHTML = '';
+            if (discarded.length) {
+                let card = discarded[discarded.length - 1];
+                let cardDiv = document.createElement('div');
+                cardDiv.textContent = formatCard(card, true);
+                cardDiv.className = 'card ' + (['H','D'].includes(card.slice(-1)) ? 'red' : 'black');
+                discardedTopDiv.appendChild(cardDiv);
+            } else {
+                discardedTopDiv.textContent = 'None';
+            }
+
+            let drawnCardDiv = document.getElementById('drawn-card');
+            drawnCardDiv.innerHTML = '';
+            if (drawnCard) {
+                let cardDiv = document.createElement('div');
+                cardDiv.textContent = formatCard(drawnCard, true);
+                cardDiv.className = 'card ' + (['H','D'].includes(drawnCard.slice(-1)) ? 'red' : 'black');
+                drawnCardDiv.appendChild(cardDiv);
+            } else {
+                drawnCardDiv.textContent = 'None';
+            }
+            updateDiscardCounter();
+            updateDeckTracker();
+            updateCpuDeckTracker();
+        }
+
+        /** Begin the player's turn */
+        function startPlayerTurn() {
+            if (playerCards.every(c => c.revealed)) {
+                endTurn();
+                return;
+            }
+            drawnCard = deck.pop();
+            updateCenter();
+            const buttons = document.getElementById('actions').children;
+            for (let btn of buttons) btn.disabled = false;
+        }
+
+        /** Make unrevealed player cards selectable */
+        function makeCardsSelectable() {
+            const hiddenCards = playerCards.filter(c => !c.revealed).map(c => 
+                document.querySelector(`#player-cards .card[data-row="${c.row}"][data-col="${c.col}"]`));
+            hiddenCards.forEach(card => {
+                card.classList.add('selectable');
+                card.onclick = () => performPlayerAction(card.dataset.row, card.dataset.col);
+            });
+        }
+
+        /** Clear card selection */
+        function clearSelection() {
+            document.querySelectorAll('.card.selectable').forEach(card => {
+                card.classList.remove('selectable');
+                card.onclick = null;
+            });
+        }
+
+        /** Perform the player's selected action */
+        function performPlayerAction(row, col) {
+            row = parseInt(row);
+            col = parseInt(col);
+            let cardIdx = playerCards.findIndex(c => c.row === row && c.col === col);
+            let oldCard = playerCards[cardIdx].card;
+
+            if (currentAction === 'use-discarded') {
+                playerCards[cardIdx].card = discarded.pop();
+                playerCards[cardIdx].revealed = true;
+                discarded.push(oldCard);
+                discarded.push(drawnCard);
+            } else if (currentAction === 'use-drawn') {
+                playerCards[cardIdx].card = drawnCard;
+                playerCards[cardIdx].revealed = true;
+                discarded.push(oldCard);
+                discarded.push(drawnCard);
+            } else if (currentAction === 'flip-only') {
+                playerCards[cardIdx].revealed = true;
+                discarded.push(drawnCard);
+            }
+
+            drawnCard = null;
+            clearSelection();
+            renderCards();
+            updateCenter();
+            endTurn();
+        }
+
+        /** Calculate the total score by optimally pairing all cards */
+        function calculateTotalScore(cards) {
+            let revealedCards = cards.filter(c => c.revealed);
+            if (revealedCards.length !== cards.length) {
+                console.warn(`Not all cards are revealed: ${revealedCards.length}/${cards.length}`);
+                return { total: 0 };
+            }
+            let ranksList = revealedCards.map(c => c.card.slice(0, -1));
+
+            let rankCount = {};
+            ranksList.forEach(rank => {
+                rankCount[rank] = (rankCount[rank] || 0) + 1;
+            });
+
+            let score = 0;
+            for (let rank of Object.keys(rankCount)) {
+                let count = rankCount[rank];
+                let pairs = Math.floor(count / 2);
+                if (rank === 'Q') {
+                    score += pairs * 40;
+                } else if (rank === '2') {
+                    score += pairs * (-4);
+                } else {
+                    score += pairs * 0;
+                }
+                rankCount[rank] = count % 2;
+            }
+
+            let remainingRanks = [];
+            for (let rank of Object.keys(rankCount)) {
+                if (rankCount[rank] > 0) {
+                    remainingRanks.push(rank);
+                }
+            }
+            while (remainingRanks.length >= 2) {
+                let r1 = remainingRanks.shift();
+                let r2 = remainingRanks.shift();
+                score += cardValue(r1) + cardValue(r2);
+            }
+
+            return { total: score };
+        }
+
+        /** Estimate the total score for CPU decision-making, with risk adjustment */
+        function estimateTotalScore(cards, targetIdx, newCard, deckTracker, isEarlyGame, flipEncouragement) {
+            let simulatedCards = cards.map((c, idx) => {
+                if (idx === targetIdx) {
+                    return { ...c, card: newCard, revealed: true };
+                }
+                return { ...c };
+            });
+
+            let revealedCards = simulatedCards.filter(c => c.revealed);
+            let ranksList = revealedCards.map(c => c.card.slice(0, -1));
+
+            if (revealedCards.length !== simulatedCards.length) {
+                let baseScore = ranksList.reduce((sum, rank) => sum + cardValue(rank), 0);
+                let unrevealedCount = simulatedCards.length - revealedCards.length;
+                let totalCardsLeft = Object.values(deckTracker).reduce((sum, count) => sum + count, 0);
+                let queenCount = deckTracker['Q'] || 0;
+                let queenRisk = totalCardsLeft > 0 ? (queenCount / totalCardsLeft) * 20 : 0;
+
+                // Encourage flipping as fewer cards remain
+                if (isEarlyGame) {
+                    baseScore += unrevealedCount * 5; // Early penalty to delay flipping
+                } else {
+                    baseScore -= flipEncouragement * unrevealedCount; // Encourage flipping later
+                }
+
+                return baseScore + (unrevealedCount * (5 + queenRisk));
+            }
+
+            let rankCount = {};
+            ranksList.forEach(rank => {
+                rankCount[rank] = (rankCount[rank] || 0) + 1;
+            });
+
+            let score = 0;
+            for (let rank of Object.keys(rankCount)) {
+                let count = rankCount[rank];
+                let pairs = Math.floor(count / 2);
+                if (rank === 'Q') {
+                    score += pairs * 40;
+                } else if (rank === '2') {
+                    score += pairs * (-4);
+                } else {
+                    score += pairs * 0;
+                }
+                rankCount[rank] = count % 2;
+            }
+
+            let remainingRanks = [];
+            for (let rank of Object.keys(rankCount)) {
+                if (rankCount[rank] > 0) {
+                    remainingRanks.push(rank);
+                }
+            }
+            while (remainingRanks.length >= 2) {
+                let r1 = remainingRanks.shift();
+                let r2 = remainingRanks.shift();
+                score += cardValue(r1) + cardValue(r2);
+            }
+
+            return score;
+        }
+
+        /** Check if the CPU already has a Queen in its hand */
+        function hasQueen(cards) {
+            return cards.some(c => (c.revealed || c.row === 1) && c.card.slice(0, -1) === 'Q');
+        }
+
+        /** Handle the CPU's turn with enhanced strategy */
+        function cpuTurn() {
+            drawnCard = deck.pop();
+            updateCenter();
+            document.getElementById('message').textContent = "CPU's turn";
+
+            const hiddenCards = cpuCards.filter(c => !c.revealed);
+            if (!hiddenCards.length) return endTurn();
+
+            let bestAction = null;
+            let bestTargetIdx = null;
+            let bestScore = Infinity;
+
+            const bottomPaired = isBottomRowPaired(cpuCards);
+            const isEarlyGame = hiddenCards.length > cpuCards.length / 2;
+            // Encourage flipping more as hidden cards decrease
+            const flipEncouragement = 5 * (1 - (hiddenCards.length / cpuCards.length));
+
+            if (!bottomPaired) {
+                // Phase 1: Focus on pairing the bottom row
+                if (!cpuHasFlippedInitialTop) {
+                    const topHiddenCards = cpuCards.filter(c => c.row === 0 && !c.revealed);
+                    if (topHiddenCards.length > 0) {
+                        const idx = cpuCards.indexOf(topHiddenCards[0]);
+                        cpuCards[idx].revealed = true;
+                        cpuHasFlippedInitialTop = true;
+                        cpuTopFlips++;
+                        discarded.push(drawnCard);
+                        drawnCard = null;
+                        renderCards();
+                        updateCenter();
+                        endTurn();
+                        return;
+                    }
+                }
+
+                // Consider actions for bottom-row hidden cards
+                const bottomHiddenCards = cpuCards.filter(c => c.row === 1 && !c.revealed);
+                bottomHiddenCards.forEach(target => {
+                    let idx = cpuCards.indexOf(target);
+                    let actions = [
+                        { action: 'flip-only', card: target.card },
+                        { action: 'use-drawn', card: drawnCard },
+                    ];
+                    if (discarded.length) {
+                        actions.push({ action: 'use-discarded', card: discarded[discarded.length - 1] });
+                    }
+
+                    actions.forEach(({ action, card }) => {
+                        let cardRank = card.slice(0, -1);
+                        if ((action === 'use-drawn' || action === 'use-discarded') && cardRank === 'Q' && !hasQueen(cpuCards)) {
+                            return;
+                        }
+
+                        let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipEncouragement);
+
+                        if (score < bestScore) {
+                            bestScore = score;
+                            bestAction = action;
+                            bestTargetIdx = idx;
+                        }
+                    });
+                });
+            } else {
+                // Phase 2: Bottom row is paired, optimize top row
+                hiddenCards.forEach(target => {
+                    let idx = cpuCards.indexOf(target);
+                    let actions = [
+                        { action: 'flip-only', card: target.card },
+                        { action: 'use-drawn', card: drawnCard },
+                    ];
+                    if (discarded.length) {
+                        actions.push({ action: 'use-discarded', card: discarded[discarded.length - 1] });
+                    }
+
+                    actions.forEach(({ action, card }) => {
+                        let cardRank = card.slice(0, -1);
+                        if ((action === 'use-drawn' || action === 'use-discarded') && cardRank === 'Q' && !hasQueen(cpuCards)) {
+                            return;
+                        }
+
+                        let score = estimateTotalScore(cpuCards, idx, card, cpuDeckTracker, isEarlyGame, flipEncouragement);
+
+                        if (score < bestScore) {
+                            bestScore = score;
+                            bestAction = action;
+                            bestTargetIdx = idx;
+                        }
+                    });
+                });
+            }
+
+            if (bestAction) {
+                let oldCard = cpuCards[bestTargetIdx].card;
+
+                if (bestAction === 'use-discarded') {
+                    cpuCards[bestTargetIdx].card = discarded.pop();
+                    cpuCards[bestTargetIdx].revealed = true;
+                    discarded.push(oldCard);
+                    discarded.push(drawnCard);
+                } else if (bestAction === 'use-drawn') {
+                    cpuCards[bestTargetIdx].card = drawnCard;
+                    cpuCards[bestTargetIdx].revealed = true;
+                    discarded.push(oldCard);
+                    discarded.push(drawnCard);
+                } else if (bestAction === 'flip-only') {
+                    cpuCards[bestTargetIdx].revealed = true;
+                    discarded.push(drawnCard);
+                    if (cpuCards[bestTargetIdx].row === 0) {
+                        cpuTopFlips++;
+                    }
+                }
+            } else {
+                // Fallback: Flip a random hidden card
+                const randomHidden = hiddenCards[Math.floor(Math.random() * hiddenCards.length)];
+                const idx = cpuCards.indexOf(randomHidden);
+                cpuCards[idx].revealed = true;
+                discarded.push(drawnCard);
+                if (randomHidden.row === 0) {
+                    cpuTopFlips++;
+                }
+            }
+
+            drawnCard = null;
+            renderCards();
+            updateCenter();
+            endTurn();
+        }
+
+        /** End the current turn and check for game end */
+        function endTurn() {
+            const allRevealed = playerCards.every(c => c.revealed) && cpuCards.every(c => c.revealed);
+            if (allRevealed) {
+                let playerResult = calculateTotalScore(playerCards);
+                let cpuResult = calculateTotalScore(cpuCards);
+                let playerScore = playerResult.total;
+                let cpuScore = cpuResult.total;
+                playerTotalScore += playerScore;
+                cpuTotalScore += cpuScore;
+                let message = `Game Over! Player: ${playerScore}, CPU: ${cpuScore}. `;
+                if (playerScore < cpuScore) {
+                    message += "Player wins this game!";
+                } else if (cpuScore < playerScore) {
+                    message += "CPU wins this game!";
+                } else {
+                    message += "It's a tie!";
+                }
+                document.getElementById('message').textContent = message;
+                document.getElementById('actions').children.forEach(btn => btn.disabled = true);
+                document.getElementById('peek-button').disabled = true;
+                updateRunningScore();
+                return;
+            }
+
+            isPlayerTurn = !isPlayerTurn;
+            if (isPlayerTurn) {
+                document.getElementById('message').textContent = "Player's turn";
+                startPlayerTurn();
+            } else {
+                setTimeout(cpuTurn, 1000);
+            }
+        }
+
+        /** Event listeners for player actions */
+        document.getElementById('peek-button').onclick = () => {
+            isPeeking = !isPeeking;
+            document.getElementById('peek-button').textContent = isPeeking ? 'Hide Bottom Row' : 'Peek at Bottom Row';
+            renderCards();
+        };
+
+        document.getElementById('use-discarded').onclick = () => {
+            if (discarded.length) {
+                currentAction = 'use-discarded';
+                makeCardsSelectable();
+            }
+        };
+        document.getElementById('use-drawn').onclick = () => {
+            currentAction = 'use-drawn';
+            makeCardsSelectable();
+        };
+        document.getElementById('flip-only').onclick = () => {
+            currentAction = 'flip-only';
+            makeCardsSelectable();
+        };
+    </script>
+</body>
+</html>
